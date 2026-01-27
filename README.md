@@ -1,204 +1,169 @@
-# dnstt_resolve_probe.py
-FAST + DEEP DNS Resolver Probe for DNSTT usage (single script, one output file)
+# dnstt_resolver_probe.py
 
-This repository provides a single-file Python tool for testing DNS resolvers for DNSTT-style tunneling, with one output file per run (CSV by default, XLSX optional).
+FAST + DEEP DNS Resolver Probe for DNSTT usage  
+(single script, one output file)
+
+This repository provides a single-file Python tool for testing DNS resolvers for DNSTT-style tunneling.  
+Each run produces exactly one output file (CSV by default, XLSX optional).
 
 The probe runs in two phases:
 
-- **FAST (parallel):** DNS-only checks to quickly rank/filter resolvers and figure out which UDP/EDNS payload sizes are stable.
-- **DEEP (sequential):** For each resolver (one at a time), it launches `dnstt-client`, confirms the local endpoint actually works (SSH or SOCKS), then picks the best MTU candidate.
+- FAST (parallel): DNS-only checks to quickly filter and rank resolvers, and to find which EDNS / payload sizes are stable.
+- DEEP (sequential): For each resolver (one at a time), it launches dnstt-client, verifies that the tunnel actually works (SSH or SOCKS), and selects the best MTU.
 
-The goal is to find resolvers that behave like the ones that work inside apps such as **HTTP Injector**.
-
----
-
-## What it does
-
-1) You provide a list of DNS resolvers.  
-2) **FAST** runs parallel DNS-only probes:
-   - basic responsiveness
-   - anti-hijack / wildcard hints
-   - tunnel-domain payload stability (MTU candidates)
-3) **DEEP (optional)** starts `dnstt-client` per resolver and verifies the tunnel endpoint works.  
-4) The tool writes **one final output file** containing FAST + DEEP results and a recommended MTU.
+The goal is to find resolvers that behave like the ones that actually work in real-world tools such as HTTP Injector, not just resolvers that reply to simple DNS queries.
 
 ---
 
 ## Requirements
 
-- Python **3.9+**
-- `dnspython`
+You should already have these installed:
 
-Install:
+- Python 3.9+  
+  https://www.python.org/downloads/
 
-    pip install dnspython
+- dnstt-client (official DNSTT client)  
+  https://dnstt.network/
 
-If you want true Excel output:
+Python dependencies (install once):
 
-    pip install openpyxl
+pip install dnspython
+
+Optional, for real Excel output:
+
+pip install openpyxl
 
 ---
 
 ## Input
 
-### dns_list.txt
+### DNS resolver list
 
-A text file with one resolver per line.
+The tool expects a plain text file containing DNS resolvers, one per line.
 
+This repository includes a ready-to-use example file:
+
+sample_dns_list.txt
+
+You can use it as-is, or edit it to add, remove, or replace DNS servers with your own list.
+
+Rules:
 - IPv4 only
-- `:53` is allowed but ignored (port is always 53)
-- empty lines and comments (`#`) are ignored
-
-Example:
-
-    1.1.1.1
-    8.8.8.8
-    9.9.9.9:53
-    # comments are fine
+- “:53” is allowed but ignored (port is always 53)
+- empty lines and comments (#) are ignored
 
 ---
 
-## Quickstart
+## Quickstart (short and simple)
 
-### FAST only (quick filtering)
+If Python and dnstt-client are already installed, this is all you need.
 
-    python3 dnstt_resolve_probe.py \
-      --dns-list dns_list.txt \
-      --tunnel-domain t.example.com \
-      --out results_fast.csv
+FAST only (quick filtering):
 
-### FAST + DEEP (recommended)
+python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --out results_fast.csv
 
-    python3 dnstt_resolve_probe.py \
-      --dns-list dns_list.txt \
-      --tunnel-domain t.example.com \
-      --run-deep \
-      --dnstt-client-path /path/to/dnstt-client \
-      --dnstt-pubkey-file /path/to/server.pub \
-      --dnstt-mode ssh
+What this does:
+- checks which resolvers are alive
+- detects resolvers that break DNSTT-style DNS queries
+- finds payload sizes that are likely to work
 
-DEEP runs sequentially because each resolver needs its own `dnstt-client` session.
+You can freely edit sample_dns_list.txt and add your own DNS servers.
+
+FAST mode is recommended if you do NOT know details such as the server public key, tunnel domain internals, or DNSTT server configuration.  
+It works with minimal information and still provides useful, practical results.
+
+FAST + DEEP (recommended for advanced users):
+
+python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --run-deep --dnstt-client-path /path/to/dnstt-client --dnstt-pubkey-file /path/to/server.pub --dnstt-mode ssh
+
+This does everything FAST does, plus:
+- actually starts a DNSTT tunnel per resolver
+- verifies that the local endpoint really works
+- chooses the best MTU based on real tunnel behavior
+
+DEEP mode is intended for users who know their DNSTT setup details (such as server public key and tunnel domain).  
+It provides much more precise, end-to-end validation.
+
+DEEP runs sequentially because each resolver needs its own dnstt-client session.
+
+---
+
+## Important concepts (brief)
+
+### tunnel-domain
+
+This is the domain used for DNSTT queries (for example: t.example.com).
+
+- If you know what it is and set it correctly, results will be more accurate
+- If you don’t fully understand it, that’s fine — FAST mode still works well
+- Many users simply copy this value from an existing DNSTT configuration
+
+### MTU (payload size)
+
+In simple terms, MTU is the largest DNS payload size that works without breaking.
+
+- Too small: tunnel is slow
+- Too large: packets get dropped or truncated
+
+For most end users (consumers), MTU is not something you need to worry about.  
+The tool automatically selects a good value.
+
+MTU becomes more useful if you are setting up or tuning a DNSTT server and want more precise control.
 
 ---
 
 ## FAST Mode (DNS-only)
 
-FAST runs in parallel and never starts a tunnel.
+FAST mode never starts a tunnel and runs fully in parallel.
 
 It checks:
+- resolver liveness
+- NXDOMAIN integrity (wildcard / hijack hints)
+- tunnel-domain payload stability (EDNS sizes like 512, 900, 1232)
+- zone visibility (NS lookup, mainly for debugging)
 
-- **Liveness** (simple “does this resolver answer normally?” check)
-- **NXDOMAIN integrity** (wildcard/hijack hints)
-- **Tunnel-domain payload stability** (EDNS payload candidates like 512/900/1232)
-- **Zone visibility** (NS lookup for tunnel-domain; helpful for debugging but not always decisive)
-
-### DNSTT-friendly defaults
-
-Some DNSTT setups work even if tunnel-domain lookups return `NXDOMAIN`. Because of that, the tool defaults to treating both of these as “success” for the tunnel-domain probe:
-
-- `NOERROR`
-- `NXDOMAIN`
-
-You can override it any time:
-
-    --tunnel-success-rcodes NOERROR
+By default, both NOERROR and NXDOMAIN are treated as valid tunnel responses.
 
 ---
 
 ## DEEP Mode (real tunnel test)
 
-DEEP starts `dnstt-client` one resolver at a time and verifies the local endpoint.
+DEEP mode starts dnstt-client for each resolver and verifies real usability.
 
-- **Deep-1:** confirms the endpoint is usable
-  - SSH mode: waits for a real SSH banner (with retries)
-  - SOCKS mode: SOCKS5 handshake + TCP connect checks
-- **Deep-2:** probes payload sizes again and selects the best MTU using:
-  - success rate
-  - timeouts
-  - TCP fallback usage
-  - latency
+Deep-1:
+- SSH mode: waits for a real SSH banner
+- SOCKS mode: SOCKS5 handshake and TCP connect
+
+Deep-2:
+- re-tests payload sizes
+- selects the best MTU based on success rate, timeouts, TCP fallback usage, and latency
 
 If Deep-1 fails, Deep-2 is skipped.
 
 ---
 
-## DNSTT logs (kept out of stdout)
+## Logs
 
-`dnstt-client` output is redirected into per-resolver log files:
+dnstt-client output is saved per resolver:
 
-- `results/dnstt_<resolver>_<port>.log`
+results/dnstt_<resolver>_<port>.log
 
-To keep your terminal clean, log tails are **not printed to stdout**.  
-Instead, the output file includes these columns:
-
-- `dnstt_log_path`
-- `dnstt_log_tail` (last ~4000 bytes)
-
-That way you can sort/filter results in Excel and still see exactly what happened for failures.
+Logs are not printed to stdout.  
+Instead, the output file includes the log path and the last part of the log for inspection.
 
 ---
 
 ## Output file
 
-You get exactly **one output file** per run:
-
-- CSV by default (Excel can open it)
-- XLSX if you pass `--xlsx` or use `--out something.xlsx`
-
-Common columns include:
-
-FAST:
-- `fast_pass`, `score`
-- `live_ok`, `live_median_ms`
-- `nxd_ok`, `nxd_hint`
-- `zone_ok`, `zone_note`
-- `fast_ok_payloads`, `fast_notes`
-
-DEEP:
-- `deep_ran`
-- `deep1_ok`, `deep1_mode`, `deep1_detail`
-- `deep2_ok`, `deep2_mtu_matrix`
-- `best_mtu`, `best_mtu_reason`
-
-Logs:
-- `dnstt_log_path`
-- `dnstt_log_tail`
-
----
-
-## Useful flags
-
-Output:
-- `--out <path>` choose output path
-- `--xlsx` write XLSX instead of CSV (or use `--out results.xlsx`)
-
-Compatibility and gating:
-- `--compat-mode` (default) FAST-pass is based mainly on payload stability
-- `--no-compat-mode` stricter FAST-pass (includes zone visibility)
-- `--require-live` require liveness for FAST-pass
-- `--require-nxd` require NXDOMAIN integrity for FAST-pass
-
-Tunnel-domain success definition:
-- `--tunnel-success-rcodes NOERROR,NXDOMAIN` (default)
-- `--tunnel-success-rcodes NOERROR` (stricter)
-- `--require-txt-answer` require non-empty TXT when rcode=NOERROR (strict)
-
-DEEP reliability (useful on slow/bad networks):
-- `--dnstt-ready-timeout 30` wait longer for the local port to appear
-- `--deep1-total-wait 20` keep retrying SSH banner longer
-- `--ready-check port` (default) tunnel readiness = port open
-- `--ready-check ssh` stricter readiness = banner must appear
+Each run produces one output file:
+- CSV by default
+- XLSX if --xlsx is used
 
 ---
 
 ## Safety & authorization
 
-Use this tool only on resolvers you own/administer or where you have explicit permission.
+Use this tool only on DNS resolvers you own, administer, or have explicit permission to test.
 
-FAST uses DNS queries. DEEP starts a tunnel client and checks a local endpoint.
-
----
-
-## More examples
-
-See `Examples.md` for tuned command lines, recipes, and troubleshooting.
+FAST sends DNS queries.  
+DEEP starts a real DNSTT tunnel.
