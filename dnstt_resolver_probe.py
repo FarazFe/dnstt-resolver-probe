@@ -376,7 +376,8 @@ class FinalResult:
 # FAST logic
 # -----------------------------
 
-def liveness_check(dns_ip: str, timeout: float, tries: int, payload: int, tcp_retry_on_timeout: bool) -> Tuple[bool, str, Optional[float]]:
+def liveness_check(dns_ip: str, timeout: float, tries: int, payload: int, tcp_retry_on_timeout: bool) -> Tuple[
+    bool, str, Optional[float]]:
     rcodes: List[str] = []
     lats: List[float] = []
     a_ok = 0
@@ -399,7 +400,8 @@ def liveness_check(dns_ip: str, timeout: float, tries: int, payload: int, tcp_re
     return ok, rmode, (round(median(lats), 1) if lats else None)
 
 
-def nxdomain_integrity_check(dns_ip: str, timeout: float, tries: int, suffix: str, tcp_retry_on_timeout: bool) -> Tuple[bool, str, str]:
+def nxdomain_integrity_check(dns_ip: str, timeout: float, tries: int, suffix: str, tcp_retry_on_timeout: bool) -> Tuple[
+    bool, str, str]:
     rcodes: List[str] = []
     noerror_with_answer = 0
     noerror_empty = 0
@@ -769,9 +771,9 @@ class TunnelAdapter:
         extra_args = self._get_arg("dnstt_extra_args", "") or ""
 
         if not client_path:
-            raise RuntimeError("Missing --dnstt-client-path")
+            raise RuntimeError("Missing --dnstt-client-path (required for DEEP)")
         if not pubkey_file:
-            raise RuntimeError("Missing --dnstt-pubkey-file")
+            raise RuntimeError("Missing --dnstt-pubkey-file (required for DEEP)")
 
         client_path = str(Path(client_path).expanduser())
         pubkey_file = str(Path(pubkey_file).expanduser())
@@ -873,7 +875,8 @@ class TunnelAdapter:
                 pass
 
 
-def socks5_connect_via_local_proxy(proxy_host: str, proxy_port: int, target_ip: str, target_port: int, timeout: float) -> Tuple[bool, str, Optional[float]]:
+def socks5_connect_via_local_proxy(proxy_host: str, proxy_port: int, target_ip: str, target_port: int,
+                                   timeout: float) -> Tuple[bool, str, Optional[float]]:
     t0 = time.perf_counter()
     try:
         with socket.create_connection((proxy_host, proxy_port), timeout=timeout) as s:
@@ -928,7 +931,8 @@ def ssh_banner_check(local_host: str, local_port: int, timeout: float) -> Tuple[
         return False, type(e).__name__
 
 
-def deep1_ssh_banner_retry(local_host: str, local_port: int, per_try_timeout: float, total_wait: float) -> Tuple[bool, str]:
+def deep1_ssh_banner_retry(local_host: str, local_port: int, per_try_timeout: float, total_wait: float) -> Tuple[
+    bool, str]:
     t0 = time.time()
     last = "NO_TRY"
     while time.time() - t0 < total_wait:
@@ -1091,7 +1095,8 @@ def main() -> None:
     ap.add_argument("--tunnel-domain", required=True, help="Your tunnel delegated domain, e.g. t.example.com")
 
     # FAST settings
-    ap.add_argument("--payloads", default="512,900,1232", help="Comma-separated EDNS payload sizes (default: 512,900,1232)")
+    ap.add_argument("--payloads", default="512,900,1232",
+                    help="Comma-separated EDNS payload sizes (default: 512,900,1232)")
     ap.add_argument("--timeout", type=float, default=2.8, help="FAST DNS timeout seconds (default: 2.8)")
     ap.add_argument("--workers", type=int, default=30, help="FAST parallel workers (default: 30)")
     ap.add_argument("--live-tries", type=int, default=3, help="FAST liveness repeats (default: 3)")
@@ -1149,12 +1154,15 @@ def main() -> None:
     ap.add_argument("--xlsx", action="store_true", help="Write XLSX (Excel) instead of CSV.")
 
     # DNSTT client settings
-    ap.add_argument("--dnstt-client-path", required=True, help="Path to dnstt-client binary")
-    ap.add_argument("--dnstt-pubkey-file", required=True, help="Path to server.pub")
+    ap.add_argument("--dnstt-client-path", required=False, default="",
+                    help="Path to dnstt-client binary (required only when --run-deep)")
+    ap.add_argument("--dnstt-pubkey-file", required=False, default="",
+                    help="Path to server.pub (required only when --run-deep)")
     ap.add_argument("--dnstt-mode", default="ssh", choices=["socks", "ssh"], help="Local endpoint mode (default: ssh)")
     ap.add_argument("--dnstt-local-host", default="127.0.0.1")
     ap.add_argument("--dnstt-local-port", type=int, default=0)
-    ap.add_argument("--dnstt-ready-timeout", type=float, default=20.0, help="Seconds to wait for tunnel readiness (default: 20)")
+    ap.add_argument("--dnstt-ready-timeout", type=float, default=20.0,
+                    help="Seconds to wait for tunnel readiness (default: 20)")
     ap.add_argument("--dnstt-stop-timeout", type=float, default=3.5)
     ap.add_argument("--dnstt-extra-args", default="")
 
@@ -1203,10 +1211,22 @@ def main() -> None:
         args.xlsx = True
 
     print(f"START | resolvers={len(dns_list)} | tunnel_domain={tunnel_domain}")
-    print(f"FAST payloads={payloads} | success_rcodes={','.join(sorted(tunnel_success_rcodes))} | compat_mode={args.compat_mode}")
-    print(f"FAST require_txt_answer={args.require_txt_answer} | edns_downgrade={args.edns_downgrade} | tcp_retry_on_timeout={args.tcp_retry_on_timeout}")
+    print(
+        f"FAST payloads={payloads} | success_rcodes={','.join(sorted(tunnel_success_rcodes))} | compat_mode={args.compat_mode}")
+    print(
+        f"FAST require_txt_answer={args.require_txt_answer} | edns_downgrade={args.edns_downgrade} | tcp_retry_on_timeout={args.tcp_retry_on_timeout}")
+
     if args.run_deep:
-        print(f"DEEP enabled | dnstt_mode={args.dnstt_mode} | deep2_repeats={args.deep2_repeats} | deep_even_if_fast_fail={args.deep_even_if_fast_fail} | deep_only={args.deep_only or '-'}")
+        missing = []
+        if not (args.dnstt_client_path or "").strip():
+            missing.append("--dnstt-client-path")
+        if not (args.dnstt_pubkey_file or "").strip():
+            missing.append("--dnstt-pubkey-file")
+        if missing:
+            raise SystemExit(f"DEEP requested (--run-deep) but missing required args: {', '.join(missing)}")
+
+        print(
+            f"DEEP enabled | dnstt_mode={args.dnstt_mode} | deep2_repeats={args.deep2_repeats} | deep_even_if_fast_fail={args.deep_even_if_fast_fail} | deep_only={args.deep_only or '-'}")
 
     # ---------- FAST
     fast_map: Dict[str, ResolverFastResult] = {}
@@ -1253,7 +1273,8 @@ def main() -> None:
 
                 if dns_ip in debug_set:
                     for chk in payload_checks:
-                        print(f"DBG  {dns_ip} payload={chk.payload} pass={chk.pass_payload} ok={chk.ok_count}/{chk.total} rcode_hist={chk.rcode_hist} note={chk.note}")
+                        print(
+                            f"DBG  {dns_ip} payload={chk.payload} pass={chk.pass_payload} ok={chk.ok_count}/{chk.total} rcode_hist={chk.rcode_hist} note={chk.note}")
 
             except Exception as e:
                 fast_map[dns_ip] = ResolverFastResult(
