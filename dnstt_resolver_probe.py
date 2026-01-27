@@ -237,6 +237,7 @@ def compute_recommendation(
         best_mtu: Optional[int],
         fast_pass: bool,
         fast_ok_payloads: str,
+        fast_lite: bool,
         deep1_detail: str,
         deep2_reason: str,
 ) -> Tuple[str, str]:
@@ -248,8 +249,10 @@ def compute_recommendation(
       - PARTIAL      : deep1_ok but deep2 not ok (or no best_mtu)
       - NOT_WORKING  : deep1 failed
     If DEEP did not run:
-      - LIKELY_OK_FAST : fast_pass and has at least one ok payload
-      - UNKNOWN        : otherwise
+      - If FAST-LITE -> UNKNOWN (because DNSTT-style payload checks were skipped)
+      - Else:
+          - LIKELY_OK_FAST : fast_pass and has at least one ok payload
+          - UNKNOWN        : otherwise
     """
     if deep_ran:
         if deep1_ok:
@@ -260,6 +263,9 @@ def compute_recommendation(
         detail = deep1_detail or "deep1_failed"
         short = detail if len(detail) <= 120 else (detail[:120] + "...")
         return "NOT_WORKING", f"deep1_fail ({short})"
+
+    if fast_lite:
+        return "UNKNOWN", "fast_lite (no tunnel-domain)"
 
     if fast_pass and (fast_ok_payloads or "").strip():
         return "LIKELY_OK_FAST", f"fast_pass payloads={fast_ok_payloads}"
@@ -614,7 +620,41 @@ def score_fast(live_ok: bool, zone_ok: bool, checks: List[MTUCheck]) -> int:
     return score
 
 
-def run_fast_for_resolver(
+def score_fast_lite(live_ok: bool, live_median_ms: Optional[float], nxd_ok: bool, nxd_hint: str) -> int:
+    """
+    Simple score for FAST-LITE:
+      - prioritize live_ok
+      - favor lower latency
+      - penalize NXDOMAIN hijack hints
+    """
+    score = 0
+    if live_ok:
+        score += 10
+    else:
+        score -= 20
+
+    # latency bonus (coarse)
+    if live_median_ms is not None:
+        if live_median_ms <= 80:
+            score += 6
+        elif live_median_ms <= 150:
+            score += 4
+        elif live_median_ms <= 300:
+            score += 2
+        else:
+            score += 0
+
+    if nxd_ok:
+        score += 4
+    else:
+        # penalize common bad patterns
+        bad = {"NOERROR_WITH_ANSWER", "NOERROR_WITH_CNAME", "INCONSISTENT_RCODE", "TIMEOUT_OR_ERROR"}
+        score -= 6 if (nxd_hint in bad) else 3
+
+    return score
+
+
+def run_fast_for_resolver_full(
         dns_ip: str,
         tunnel_domain: str,
         payloads: List[int],
@@ -694,6 +734,56 @@ def run_fast_for_resolver(
         notes="; ".join(notes) if notes else "OK",
     )
     return res, payload_checks, zc
+
+
+def run_fast_for_resolver_lite(
+        dns_ip: str,
+        timeout: float,
+        live_tries: int,
+        live_payload: int,
+        nxd_tries: int,
+        nxd_suffix: str,
+        tcp_retry_on_timeout: bool,
+) -> Tuple[ResolverFastResult, List[MTUCheck], ZoneCheck]:
+    """
+    FAST-LITE: no tunnel-domain -> do only liveness + NXDOMAIN integrity.
+    Zone + payload checks are skipped.
+    """
+    notes: List[str] = ["MODE=LITE", "skipped=zone,payload"]
+
+    live_ok, live_rcode, live_med = liveness_check(
+        dns_ip, timeout, live_tries, payload=live_payload, tcp_retry_on_timeout=tcp_retry_on_timeout
+    )
+    if not live_ok:
+        notes.append(f"live={live_rcode}")
+
+    nxd_ok, nxd_mode, nxd_hint = nxdomain_integrity_check(
+        dns_ip, timeout, nxd_tries, suffix=nxd_suffix, tcp_retry_on_timeout=tcp_retry_on_timeout
+    )
+    if not nxd_ok:
+        notes.append(f"nxd={nxd_mode}({nxd_hint})")
+
+    zc = ZoneCheck(ns_rcode="", ns_latency_ms=None, ns_used_tcp=False, note="SKIPPED_NO_TUNNEL_DOMAIN")
+
+    sc = score_fast_lite(live_ok, live_med, nxd_ok, nxd_hint)
+
+    res = ResolverFastResult(
+        dns_ip=dns_ip,
+        live_ok=live_ok,
+        live_rcode=live_rcode,
+        live_median_ms=live_med,
+        nxd_ok=nxd_ok,
+        nxd_rcode_mode=nxd_mode,
+        nxd_hijack_hint=nxd_hint,
+        zone_ok=False,
+        zone_note=zc.note,
+        fast_ok_any_payload=False,
+        fast_ok_payload_list="",
+        score=sc,
+        notes="; ".join(notes),
+    )
+
+    return res, [], zc
 
 
 # -----------------------------
@@ -784,7 +874,7 @@ class TunnelAdapter:
 
         tunnel_domain = (self.args.tunnel_domain or "").strip().rstrip(".")
         if not tunnel_domain:
-            raise RuntimeError("Missing --tunnel-domain")
+            raise RuntimeError("Missing --tunnel-domain (required for DEEP)")
 
         if local_port <= 0:
             local_port = self._pick_free_port(local_host)
@@ -1092,7 +1182,10 @@ def write_xlsx(path: Path, rows: List[FinalResult]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="FAST+DEEP DNSTT resolver probe (Option A + store logs + recommendation).")
     ap.add_argument("--dns-list", required=True, help="Path to dns_list.txt (one resolver IPv4 per line)")
-    ap.add_argument("--tunnel-domain", required=True, help="Your tunnel delegated domain, e.g. t.example.com")
+
+    # ✅ tunnel-domain is now optional (FAST-LITE if missing)
+    ap.add_argument("--tunnel-domain", required=False, default="",
+                    help="Your tunnel delegated domain, e.g. t.example.com (optional; if omitted -> FAST-LITE)")
 
     # FAST settings
     ap.add_argument("--payloads", default="512,900,1232",
@@ -1124,7 +1217,7 @@ def main() -> None:
 
     # Compatibility mode
     ap.add_argument("--compat-mode", action="store_true", default=True,
-                    help="Compatibility mode (default ON): FAST-pass focuses on payload stability (not zone NS).")
+                    help="Compatibility mode (default ON): FAST-pass focuses on payload stability (not zone NS visibility).")
     ap.add_argument("--no-compat-mode", action="store_false", dest="compat_mode",
                     help="Disable compat-mode and use stricter gating.")
     ap.add_argument("--require-live", action="store_true", help="Require live_ok for FAST-pass")
@@ -1153,7 +1246,7 @@ def main() -> None:
     ap.add_argument("--outdir", default="results", help="Output directory (default: results)")
     ap.add_argument("--xlsx", action="store_true", help="Write XLSX (Excel) instead of CSV.")
 
-    # DNSTT client settings
+    # DNSTT client settings (optional unless --run-deep)
     ap.add_argument("--dnstt-client-path", required=False, default="",
                     help="Path to dnstt-client binary (required only when --run-deep)")
     ap.add_argument("--dnstt-pubkey-file", required=False, default="",
@@ -1176,7 +1269,20 @@ def main() -> None:
     if not dns_list:
         raise SystemExit("No valid resolver IPv4s found in dns-list input.")
 
-    tunnel_domain = args.tunnel_domain.strip().rstrip(".")
+    tunnel_domain = (args.tunnel_domain or "").strip().rstrip(".")
+    has_tunnel_domain = bool(tunnel_domain)
+
+    # DEEP fail-fast requirements
+    if args.run_deep:
+        missing = []
+        if not has_tunnel_domain:
+            missing.append("--tunnel-domain")
+        if not (args.dnstt_client_path or "").strip():
+            missing.append("--dnstt-client-path")
+        if not (args.dnstt_pubkey_file or "").strip():
+            missing.append("--dnstt-pubkey-file")
+        if missing:
+            raise SystemExit(f"DEEP requested (--run-deep) but missing required args: {', '.join(missing)}")
 
     payloads: List[int] = []
     for x in args.payloads.split(","):
@@ -1210,21 +1316,17 @@ def main() -> None:
     if out_path.suffix.lower() == ".xlsx":
         args.xlsx = True
 
-    print(f"START | resolvers={len(dns_list)} | tunnel_domain={tunnel_domain}")
-    print(
-        f"FAST payloads={payloads} | success_rcodes={','.join(sorted(tunnel_success_rcodes))} | compat_mode={args.compat_mode}")
+    if has_tunnel_domain:
+        print(f"START | resolvers={len(dns_list)} | tunnel_domain={tunnel_domain}")
+        print(
+            f"FAST(FULL) payloads={payloads} | success_rcodes={','.join(sorted(tunnel_success_rcodes))} | compat_mode={args.compat_mode}")
+    else:
+        print(f"START | resolvers={len(dns_list)} | tunnel_domain=-")
+        print("FAST(LITE): tunnel-domain not provided -> skipping zone/payload checks (results are NOT DNSTT-accurate)")
+
     print(
         f"FAST require_txt_answer={args.require_txt_answer} | edns_downgrade={args.edns_downgrade} | tcp_retry_on_timeout={args.tcp_retry_on_timeout}")
-
     if args.run_deep:
-        missing = []
-        if not (args.dnstt_client_path or "").strip():
-            missing.append("--dnstt-client-path")
-        if not (args.dnstt_pubkey_file or "").strip():
-            missing.append("--dnstt-pubkey-file")
-        if missing:
-            raise SystemExit(f"DEEP requested (--run-deep) but missing required args: {', '.join(missing)}")
-
         print(
             f"DEEP enabled | dnstt_mode={args.dnstt_mode} | deep2_repeats={args.deep2_repeats} | deep_even_if_fast_fail={args.deep_even_if_fast_fail} | deep_only={args.deep_only or '-'}")
 
@@ -1234,27 +1336,38 @@ def main() -> None:
     zone_map: Dict[str, ZoneCheck] = {}
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futures = {
-            ex.submit(
-                run_fast_for_resolver,
-                dns_ip,
-                tunnel_domain,
-                payloads,
-                args.timeout,
-                args.live_tries,
-                args.nxd_tries,
-                args.payload_repeats,
-                args.payload_pass,
-                args.live_payload,
-                args.nxd_suffix,
-                tunnel_success_rcodes,
-                args.require_txt_answer,
-                args.edns_downgrade,
-                args.downgrade_payload,
-                args.tcp_retry_on_timeout,
-            ): dns_ip
-            for dns_ip in dns_list
-        }
+        futures = {}
+        for dns_ip in dns_list:
+            if has_tunnel_domain:
+                futures[ex.submit(
+                    run_fast_for_resolver_full,
+                    dns_ip,
+                    tunnel_domain,
+                    payloads,
+                    args.timeout,
+                    args.live_tries,
+                    args.nxd_tries,
+                    args.payload_repeats,
+                    args.payload_pass,
+                    args.live_payload,
+                    args.nxd_suffix,
+                    tunnel_success_rcodes,
+                    args.require_txt_answer,
+                    args.edns_downgrade,
+                    args.downgrade_payload,
+                    args.tcp_retry_on_timeout,
+                )] = dns_ip
+            else:
+                futures[ex.submit(
+                    run_fast_for_resolver_lite,
+                    dns_ip,
+                    args.timeout,
+                    args.live_tries,
+                    args.live_payload,
+                    args.nxd_tries,
+                    args.nxd_suffix,
+                    args.tcp_retry_on_timeout,
+                )] = dns_ip
 
         for fut in as_completed(futures):
             dns_ip = futures[fut]
@@ -1271,7 +1384,7 @@ def main() -> None:
                     f"payload_ok={res.fast_ok_payload_list or '-':>10}"
                 )
 
-                if dns_ip in debug_set:
+                if dns_ip in debug_set and has_tunnel_domain:
                     for chk in payload_checks:
                         print(
                             f"DBG  {dns_ip} payload={chk.payload} pass={chk.pass_payload} ok={chk.ok_count}/{chk.total} rcode_hist={chk.rcode_hist} note={chk.note}")
@@ -1291,15 +1404,21 @@ def main() -> None:
     # determine FAST-pass list
     fast_pass: List[str] = []
     for ip, res in fast_map.items():
-        if args.compat_mode:
-            base_ok = res.fast_ok_any_payload
+        if not has_tunnel_domain:
+            # FAST-LITE pass: pre-filter only (DNS liveness), optionally require_nxd if user asked
+            base_ok = res.live_ok
+            if args.require_nxd:
+                base_ok = base_ok and res.nxd_ok
         else:
-            base_ok = res.zone_ok and res.fast_ok_any_payload
+            if args.compat_mode:
+                base_ok = res.fast_ok_any_payload
+            else:
+                base_ok = res.zone_ok and res.fast_ok_any_payload
 
-        if args.require_live:
-            base_ok = base_ok and res.live_ok
-        if args.require_nxd:
-            base_ok = base_ok and res.nxd_ok
+            if args.require_live:
+                base_ok = base_ok and res.live_ok
+            if args.require_nxd:
+                base_ok = base_ok and res.nxd_ok
 
         if base_ok:
             fast_pass.append(ip)
@@ -1325,6 +1444,7 @@ def main() -> None:
         dnstt_log_path = ""
         dnstt_log_tail = ""
 
+        # should_deep only possible if args.run_deep and has_tunnel_domain (already enforced above)
         if deep_only_set:
             should_deep = args.run_deep and (ip in deep_only_set)
         else:
@@ -1335,7 +1455,6 @@ def main() -> None:
             handle: Optional[TunnelHandle] = None
             try:
                 handle = adapter.start_tunnel(ip)
-
                 dnstt_log_path = extract_log_path_from_meta(getattr(handle, "meta", "") or "")
 
                 deep1 = deep1_check(
@@ -1401,6 +1520,7 @@ def main() -> None:
             best_mtu=deep2.best_mtu,
             fast_pass=is_fast_pass,
             fast_ok_payloads=res.fast_ok_payload_list,
+            fast_lite=(not has_tunnel_domain),
             deep1_detail=deep1.detail,
             deep2_reason=deep2.best_reason,
         )
