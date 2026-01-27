@@ -446,10 +446,14 @@ def nxdomain_integrity_check(dns_ip: str, timeout: float, tries: int, suffix: st
     stable = (nxd_count >= max(1, int(0.75 * tries)))
     ok = (rmode == "NXDOMAIN") and stable
 
-    if timeouts_or_errors == tries:
+    if rmode == "NXDOMAIN" and stable:
+        hint = "OK"
+    elif rmode == "REFUSED":
+        hint = "RCODE_REFUSED"
+    elif rmode == "SERVFAIL":
+        hint = "RCODE_SERVFAIL"
+    elif timeouts_or_errors == tries:
         hint = "TIMEOUT_OR_ERROR"
-    elif len(set(rcodes)) > 1 and not stable:
-        hint = "INCONSISTENT_RCODE"
     elif cname_present > 0:
         hint = "NOERROR_WITH_CNAME"
     elif noerror_with_answer > 0:
@@ -457,7 +461,7 @@ def nxdomain_integrity_check(dns_ip: str, timeout: float, tries: int, suffix: st
     elif noerror_empty > 0:
         hint = "NOERROR_EMPTY_ANSWER"
     else:
-        hint = "OK"
+        hint = "INCONSISTENT_RCODE"
 
     return ok, rmode, hint
 
@@ -749,7 +753,11 @@ def run_fast_for_resolver_lite(
     FAST-LITE: no tunnel-domain -> do only liveness + NXDOMAIN integrity.
     Zone + payload checks are skipped.
     """
-    notes: List[str] = ["MODE=LITE", "skipped=zone,payload"]
+    notes: List[str] = [
+        "MODE=FAST_LITE",
+        "SCORE=LIVE_LAT_NXD(0..20)",
+        "SKIPPED=ZONE,PAYLOAD",
+    ]
 
     live_ok, live_rcode, live_med = liveness_check(
         dns_ip, timeout, live_tries, payload=live_payload, tcp_retry_on_timeout=tcp_retry_on_timeout
