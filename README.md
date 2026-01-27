@@ -69,6 +69,10 @@ What this does:
 
 You can freely edit sample_dns_list.txt and add your own DNS servers.
 
+Note:  
+If --tunnel-domain is omitted, the tool automatically runs in FAST-LITE mode  
+(liveness and NXDOMAIN checks only).
+
 FAST mode is recommended if you do NOT know details such as the server public key, tunnel domain internals, or DNSTT server configuration.  
 It works with minimal information and still provides useful, practical results.
 
@@ -98,6 +102,8 @@ This is the domain used for DNSTT queries (for example: t.example.com).
 - If you don’t fully understand it, that’s fine — FAST mode still works well
 - Many users simply copy this value from an existing DNSTT configuration
 
+If --tunnel-domain is not provided, the probe runs in FAST-LITE mode.
+
 ### MTU (payload size)
 
 In simple terms, MTU is the largest DNS payload size that works without breaking.
@@ -124,6 +130,22 @@ It checks:
 
 By default, both NOERROR and NXDOMAIN are treated as valid tunnel responses.
 
+### FAST-LITE mode (no tunnel-domain)
+
+If --tunnel-domain is not provided, the probe runs automatically in FAST-LITE mode.
+
+In this mode, the following checks are performed:
+- DNS resolver liveness
+- NXDOMAIN integrity (wildcard / hijack detection)
+
+The following DNSTT-specific checks are skipped:
+- Tunnel-domain payload stability
+- EDNS MTU detection
+- Zone (NS) visibility
+
+FAST-LITE mode is intended for initial resolver filtering only.  
+It does not validate real DNSTT tunnel behavior.
+
 ---
 
 ## DEEP Mode (real tunnel test)
@@ -139,6 +161,8 @@ Deep-2:
 - selects the best MTU based on success rate, timeouts, TCP fallback usage, and latency
 
 If Deep-1 fails, Deep-2 is skipped.
+
+DEEP mode requires a valid --tunnel-domain and cannot be used in FAST-LITE mode.
 
 ---
 
@@ -158,6 +182,9 @@ Instead, the output file includes the log path and the last part of the log for 
 Each run produces one output file:
 - CSV by default
 - XLSX if --xlsx is used
+
+When running in FAST-LITE mode, the recommendation field is set to UNKNOWN,  
+indicating that DNSTT compatibility was not fully evaluated.
 
 ---
 
