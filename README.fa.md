@@ -62,9 +62,10 @@ sample_dns_list.txt
 
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --out results_fast.csv
 
-این دستور:
-- Resolverهای زنده را پیدا می‌کند
-- Resolverهایی که DNS تونلی را خراب می‌کنند شناسایی می‌کند
+این دستور
+:
+- ریزالورهایی که زنده هستند را پیدا میکند
+- ریزالورهایی که مناسب کوئری‌های DNSTT نیستند را شناسایی میکند
 - سایزهای payloadی که احتمالاً کار می‌کنند را مشخص می‌کند
 
 می‌توانید فایل sample_dns_list.txt را آزادانه ویرایش کنید و DNSهای بیشتری به آن اضافه کنید.
