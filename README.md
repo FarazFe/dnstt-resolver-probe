@@ -1,4 +1,5 @@
 # dnstt_resolver_probe.py
+🌐 Languages: [English](README.md) | [فارسی](README.fa.md)
 
 FAST + DEEP DNS Resolver Probe for DNSTT usage  
 (single script, one output file)
@@ -27,12 +28,14 @@ You should already have these installed:
 
 Python dependencies (install once):
 
+```bash
 pip install dnspython
+```
 
 Optional, for real Excel output:
-
+```bash
 pip install openpyxl
-
+```
 ---
 
 ## Input
@@ -54,14 +57,14 @@ Rules:
 
 ---
 
-## Quickstart (short and simple)
+## Quickstart
 
 If Python and dnstt-client are already installed, this is all you need.
 
 FAST only (quick filtering):
-
+```bash
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --out results_fast.csv
-
+```
 What this does:
 - checks which resolvers are alive
 - detects resolvers that break DNSTT-style DNS queries
@@ -77,8 +80,11 @@ FAST mode is recommended if you do NOT know details such as the server public ke
 It works with minimal information and still provides useful, practical results.
 
 FAST + DEEP (recommended for advanced users):
-
+```bash
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --run-deep --dnstt-client-path /path/to/dnstt-client --dnstt-pubkey-file /path/to/server.pub --dnstt-mode ssh
+```
+<img width="2475" height="581" alt="image" src="https://github.com/user-attachments/assets/7cdd4399-7a2d-4682-b7ed-3c8f71dc6729" />
+
 
 This does everything FAST does, plus:
 - actually starts a DNSTT tunnel per resolver
@@ -182,6 +188,9 @@ Instead, the output file includes the log path and the last part of the log for 
 Each run produces one output file:
 - CSV by default
 - XLSX if --xlsx is used
+
+<img width="2421" height="1315" alt="image" src="https://github.com/user-attachments/assets/a0dfc3ef-ea23-4e01-960d-2c22d2303f05" />
+
 
 When running in FAST-LITE mode, the recommendation field is set to UNKNOWN,  
 indicating that DNSTT compatibility was not fully evaluated.
