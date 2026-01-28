@@ -1,4 +1,5 @@
 # dnstt_resolver_probe.py
+🌐 زبان‌ها: [English](README.md) | [فارسی](README.fa.md)
 
 ابزار **سریع و عمیق** برای تست DNS Resolverها با هدف استفاده در DNSTT  
 (یک اسکریپت تکی، یک فایل خروجی)
@@ -28,13 +29,13 @@
   https://dnstt.network/
 
 وابستگی‌های پایتون (یک‌بار نصب می‌شود):
-
+```bash
 pip install dnspython
-
+```
 اختیاری، برای خروجی Excel واقعی:
-
+```bash
 pip install openpyxl
-
+```
 ---
 
 ## ورودی
@@ -56,14 +57,14 @@ sample_dns_list.txt
 
 ---
 
-## Quickstart (کوتاه و ساده)
+## Quickstart
 
 اگر Python و dnstt-client را نصب کرده‌اید، همین بخش برای شروع کافی است.
 
 فقط FAST (فیلتر سریع):
-
+```bash
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --out results_fast.csv
-
+```
 این دستور
 :
 - ریزالورهایی که زنده هستند را پیدا میکند
@@ -81,14 +82,19 @@ python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t
 
 FAST + DEEP (مناسب کاربران فنی‌تر):
 
+```bash
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --run-deep --dnstt-client-path /path/to/dnstt-client --dnstt-pubkey-file /path/to/server.pub --dnstt-mode ssh
+```
+
+<img width="2475" height="581" alt="image" src="https://github.com/user-attachments/assets/7cdd4399-7a2d-4682-b7ed-3c8f71dc6729" />
+
 
 این حالت علاوه بر FAST:
 - یک تونل DNSTT واقعی برای هر Resolver اجرا می‌کند
 - بررسی می‌کند endpoint محلی واقعاً قابل استفاده است
 - بهترین MTU را بر اساس عملکرد واقعی انتخاب می‌کند
 
-DEEP mode برای کسانی است که تنظیمات سرور DNSTT (مثل public key و tunnel-domain) را می‌شناسند.  
+مود DEEP بیشتر مناسب کسانی است که تنظیمات سرور (مثل public key و tunnel-domain) را می‌شناسند.  
 این حالت تست **بسیار دقیق end-to-end** انجام می‌دهد.
 
 فاز DEEP به‌صورت ترتیبی اجرا می‌شود.
@@ -190,6 +196,8 @@ results/dnstt_<resolver>_<port>.log
 در هر اجرا دقیقاً **یک فایل خروجی** دارید:
 - CSV به‌صورت پیش‌فرض
 - XLSX در صورت استفاده از گزینه `--xlsx`
+
+<img width="2421" height="1315" alt="image" src="https://github.com/user-attachments/assets/a0dfc3ef-ea23-4e01-960d-2c22d2303f05" />
 
 در حالت FAST-LITE، مقدار ستون `recommendation` برابر با `UNKNOWN` خواهد بود،  
 به این معنی که سازگاری DNSTT به‌صورت کامل بررسی نشده است.
