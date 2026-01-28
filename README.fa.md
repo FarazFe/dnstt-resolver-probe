@@ -9,8 +9,8 @@
 
 این ابزار در دو فاز اجرا می‌شود:
 
-- FAST (موازی): تست‌های DNS-only برای فیلتر و رتبه‌بندی سریع Resolverها و پیدا کردن سایزهای پایدار EDNS / payload
-- DEEP (ترتیبی): اجرای واقعی dnstt-client برای هر Resolver (یکی‌یکی)، بررسی اینکه تونل واقعاً کار می‌کند و انتخاب بهترین MTU
+- حالت FAST (موازی): تست‌های DNS-only برای فیلتر و رتبه‌بندی سریع Resolverها و پیدا کردن سایزهای پایدار EDNS / payload
+- حالت DEEP (ترتیبی): اجرای واقعی dnstt-client برای هر Resolver (یکی‌یکی)، بررسی اینکه تونل واقعاً کار می‌کند و انتخاب بهترین MTU
 
 هدف این پروژه پیدا کردن Resolverهایی است که **در عمل** برای DNSTT جواب می‌دهند؛  
 مشابه Resolverهایی که در ابزارهای واقعی مثل **HTTP Injector** استفاده می‌شوند،  
@@ -45,9 +45,9 @@ pip install openpyxl
 این ابزار یک فایل متنی ساده می‌گیرد که در هر خط آن یک DNS Resolver نوشته شده است.
 
 در این ریپازیتوری یک فایل نمونه هم وجود دارد:
-
+```text
 sample_dns_list.txt
-
+```
 می‌توانید از همین فایل استفاده کنید یا آن را ویرایش کنید و DNS سرورهای دلخواه خودتان را به آن اضافه یا کم کنید.
 
 قوانین فایل:
@@ -80,7 +80,7 @@ python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t
 اگر **public key سرور، تنظیمات دقیق DNSTT یا جزئیات tunnel-domain** را نمی‌دانید، FAST mode بهترین انتخاب است.  
 این حالت با حداقل اطلاعات هم نتیجهٔ کاربردی می‌دهد.
 
-FAST + DEEP (مناسب کاربران فنی‌تر):
+حالت FAST + DEEP (مناسب کاربران فنی‌تر):
 
 ```bash
 python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t.example.com --run-deep --dnstt-client-path /path/to/dnstt-client --dnstt-pubkey-file /path/to/server.pub --dnstt-mode ssh
@@ -102,9 +102,7 @@ python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t
 ---
 
 ## مفاهیم مهم (خلاصه)
-
-### tunnel-domain
-
+### tunnel-domain:
 دامنه‌ای است که DNSTT از آن برای ارسال درخواست‌های DNS استفاده می‌کند (مثلاً t.example.com).
 
 - اگر بدانید دقیقاً چیست و درست تنظیمش کنید، نتیجه **دقیق‌تر** می‌شود
@@ -113,7 +111,7 @@ python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t
 
 اگر `--tunnel-domain` داده نشود، ابزار در حالت FAST-LITE اجرا می‌شود.
 
-### MTU (سایز payload)
+### MTU (سایز payload):
 
 به زبان ساده، MTU یعنی **بزرگ‌ترین سایز DNS که بدون خراب شدن کار می‌کند**.
 
@@ -123,7 +121,7 @@ python3 dnstt_resolver_probe.py --dns-list sample_dns_list.txt --tunnel-domain t
 برای کاربران عادی که فقط مصرف‌کننده هستند، MTU موضوع مهمی نیست و لازم نیست درگیرش شوند.  
 ابزار به‌صورت خودکار یک مقدار مناسب انتخاب می‌کند.
 
-MTU بیشتر به درد کسانی می‌خورد که:
+تنظیم MTU به درد کسانی می‌خورد که:
 - سرور DNSTT راه‌اندازی می‌کنند
 - یا می‌خواهند تنظیمات سرور را دقیق‌تر و بهینه‌تر کنند
 
@@ -156,7 +154,7 @@ MTU بیشتر به درد کسانی می‌خورد که:
 - تشخیص MTU
 - بررسی Zone / NS
 
-FAST-LITE فقط برای **غربال اولیه** مناسب است  
+حالت FAST-LITE فقط برای **غربال اولیه** مناسب است  
 و سازگاری واقعی Resolver با DNSTT را تأیید نمی‌کند.
 
 ---
@@ -183,9 +181,9 @@ Deep-2:
 ## لاگ‌ها
 
 لاگ‌های dnstt-client برای هر Resolver در فایل جدا ذخیره می‌شوند:
-
+```text
 results/dnstt_<resolver>_<port>.log
-
+```
 لاگ‌ها در ترمینال چاپ نمی‌شوند.  
 در عوض، مسیر لاگ و بخش انتهایی آن در فایل خروجی ذخیره می‌شود تا بتوانید بررسی کنید.
 
